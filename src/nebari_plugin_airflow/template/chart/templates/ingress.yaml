@@ -1,0 +1,35 @@
+{{- if .Values.ingress.enabled }}
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`{{ .Values.domain }}`) && PathPrefix(`{{ .Values.ingress.path }}`)
+    middlewares:
+    - name: {{ .Release.Name }}-stripprefix
+      namespace: {{ .Release.Namespace }}
+    services:
+    - name: {{ .Release.Name }}-web
+      passHostHeader: true
+      port: 8080
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ .Release.Name }}-stripprefix
+  namespace: {{ .Release.Namespace }}
+spec:
+  stripPrefix:
+    forceSlash: false
+    prefixes:
+    - {{ .Values.ingress.path | quote }}
+
+{{- end }}
