@@ -1,0 +1,9 @@
+apiVersion: v2
+name: nebari-airflow
+version: 1.0.0
+appVersion: 2.8.0
+
+dependencies:
+- name: airflow
+  repository: https://airflow-helm.github.io/charts
+  version: 8.8.0

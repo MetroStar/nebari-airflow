@@ -1,0 +1,26 @@
+configSecretName: airflow-config
+
+ingress:
+  enabled: true
+  path: /airflow
+
+auth:
+  enabled: true
+
+airflow:
+  airflow:
+    executor: KubernetesExecutor
+
+    config:
+      AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX: "True"
+
+    usersUpdate: true
+    
+  workers:
+    enabled: false
+
+  flower:
+    enabled: false
+
+  redis:
+    enabled: false
