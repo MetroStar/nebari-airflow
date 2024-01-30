@@ -41,6 +41,17 @@ variable "namespace" {
   type = string
 }
 
+variable "ingress" {
+  type = object({
+    enabled = optional(bool, true)
+    path    = string
+  })
+  default = {
+    enabled = false
+    path    = "/airflow"
+  }
+}
+
 variable "affinity" {
   type = object({
     enabled  = optional(bool, true)
@@ -92,14 +103,14 @@ variable "gitSync" {
 
 variable "extraEnv" {
   type = list(object({
-    name = string
+    name  = string
     value = string
   }))
   default = []
 }
 
 variable "pythonVersion" {
-  type = string
+  type    = string
   default = "3.10"
 }
 

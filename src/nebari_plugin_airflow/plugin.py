@@ -7,6 +7,11 @@ from nebari.schema import Base
 from _nebari.stages.base import NebariTerraformStage
 
 
+class AirflowIngressConfig(Base):
+    enabled: Optional[bool] = True
+    path: Optional[str] = "/airflow"
+
+
 class AirflowAuthConfig(Base):
     enabled: Optional[bool] = True
 
@@ -36,10 +41,11 @@ class AirflowConfig(Base):
     name: Optional[str] = "airflow"
     namespace: Optional[str] = None
     pythonVersion: Optional[str] = "3.10"
+    ingress: AirflowIngressConfig = AirflowIngressConfig()
     auth: AirflowAuthConfig = AirflowAuthConfig()
     affinity: AirflowAffinityConfig = AirflowAffinityConfig()
-    extraEnv: Optional[List(AirflowEnvConfig)] = []
-    gitSync: AirflowGitSyncConfig = AirflowGitSyncConfig()
+    extraEnv: Optional[List[AirflowEnvConfig]] = []
+    gitSync: Optional[AirflowGitSyncConfig]
     values: Optional[Dict[str, Any]] = {}
 
 
@@ -47,7 +53,7 @@ class InputSchema(Base):
     airflow: AirflowConfig = AirflowConfig()
 
 
-class AirflowStageStage(NebariTerraformStage):
+class AirflowStage(NebariTerraformStage):
     name = "airflow"
     priority = 100
 
@@ -74,13 +80,17 @@ class AirflowStageStage(NebariTerraformStage):
             "name": self.config.airflow.name,
             "domain": domain,
             "realm_id": realm_id,
-            "client_id": self.name,
-            "base_url": f"https://{domain}/airflow",
+            "client_id": self.config.airflow.name,
+            "base_url": f"https://{domain}{self.config.airflow.ingress.path}",
             "external_url": keycloak_url,
-            "valid_redirect_uris": [f"https://{domain}/airflow/oauth-authorized/keycloak"],
+            "valid_redirect_uris": [f"https://{domain}{self.config.airflow.ingress.path}/oauth-authorized/keycloak"],
             "create_namespace": create_ns,
             "namespace": chart_ns,
             "overrides": self.config.airflow.values,
+            "ingress": {
+                "enabled": self.config.airflow.ingress.enabled,
+                "path": self.config.airflow.ingress.path
+            },
             "affinity": {
                 "enabled": self.config.airflow.affinity.enabled,
                 "selector": self.config.airflow.affinity.selector.__dict__
@@ -88,8 +98,8 @@ class AirflowStageStage(NebariTerraformStage):
                 else self.config.airflow.affinity.selector,
             },
             "auth_enabled": self.config.airflow.auth.enabled,
-            "fernet_key": Fernet.generate_key().decode(),
-            "extraEnv": self.config.airflow.extraEnv,
+            "fernet_key": Fernet.generate_key().decode(),  # ignored on subsequent updates
+            "extraEnv": [ x.__dict__ for x in self.config.airflow.extraEnv ] if len(self.config.airflow.extraEnv) > 0 else [],
             "gitSync": {
                 "enabled": self.config.airflow.gitSync.enabled,
                 "repo": self.config.airflow.gitSync.repo,
@@ -99,6 +109,8 @@ class AirflowStageStage(NebariTerraformStage):
                     "username": os.getenv("GITHUB_USERNAME", "_"),
                     "password": os.getenv("GITHUB_TOKEN", "_"),
                 },
-            },
-            "pythonVersion": self.config.airflow.pythonVersion
+            }
+            if self.config.airflow.gitSync != None
+            else {},
+            "pythonVersion": self.config.airflow.pythonVersion,
         }

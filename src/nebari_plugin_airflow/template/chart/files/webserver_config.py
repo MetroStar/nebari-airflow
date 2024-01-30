@@ -17,6 +17,7 @@
 # under the License.
 """Default configuration for the Airflow webserver"""
 from __future__ import annotations
+import distutils.util
 import os
 import logging
 import jwt
@@ -30,6 +31,9 @@ from flask_appbuilder import expose
 from flask_appbuilder.security.views import AuthOAuthView
 basedir = os.path.abspath(os.path.dirname(__file__))
 log = logging.getLogger(__name__)
+
+INSECURE = True if distutils.util.strtobool(os.environ.get("INSECURE", "false")) == 1 else False
+
 # APP_THEME = "simplex.css"
 # Flask-WTF flag for CSRF
 WTF_CSRF_ENABLED = True
@@ -80,14 +84,17 @@ OAUTH_PROVIDERS = [{
         'client_id': CLIENT_ID,
         'client_secret': CLIENT_SECRET,
         'client_kwargs':{
-            'scope': 'email profile'
+            'scope': 'email profile',
+            'verify': not INSECURE
         }
     }
 }]
-req = requests.get(OIDC_ISSUER)
+
+req = requests.get(OIDC_ISSUER, verify=not INSECURE)
 key_der_base64 = req.json()["public_key"]
 key_der = b64decode(key_der_base64.encode())
 public_key = serialization.load_der_public_key(key_der)
+
 class CustomAuthRemoteUserView(AuthOAuthView):
     @expose("/logout/")
     def logout(self):

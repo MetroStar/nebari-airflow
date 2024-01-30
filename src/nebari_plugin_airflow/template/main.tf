@@ -10,6 +10,7 @@ locals {
   create_namespace = var.create_namespace
   namespace        = var.namespace
   overrides        = var.overrides
+  ingress          = var.ingress
   affinity = var.affinity != null && lookup(var.affinity, "enabled", false) ? {
     enabled = true
     selector = try(
@@ -37,6 +38,91 @@ locals {
     "airflow_user",
     "airflow_viewer",
   ] : []
+
+  default_values = yamlencode({
+    domain           = local.domain
+    configSecretName = "${local.name}-webserver-config"
+
+    ingress = {
+      ingress = local.ingress.enabled
+      host    = local.domain
+      path    = local.ingress.path
+    }
+    auth = {
+      enabled = local.auth_enabled
+    }
+    airflow = {
+      airflow = {
+        image = {
+          repository = "ghcr.io/metrostar/nebari-airflow/airflow"
+          tag        = "${yamldecode(file("./chart/Chart.yaml")).appVersion}-python${local.pythonVersion}"
+        }
+        extraEnv = concat([for k, _ in kubernetes_secret.env.data :
+          {
+            name = k
+            valueFrom = {
+              secretKeyRef = {
+                name     = kubernetes_secret.env.metadata[0].name
+                key      = k
+                optional = false
+              }
+            }
+          }
+        ], local.extraEnv)
+        defaultAffinity = local.affinity.enabled ? {
+          nodeAffinity = {
+            requiredDuringSchedulingIgnoredDuringExecution = {
+              nodeSelectorTerms = [
+                {
+                  matchExpressions = [
+                    {
+                      key      = "eks.amazonaws.com/nodegroup"
+                      operator = "In"
+                      values   = [local.affinity.selector.default]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        } : {}
+      }
+      web = local.auth_enabled ? {
+        podAnnotations = {
+          "checksum/plugin-secrets-sha256" = base64sha256(join("", [
+            filebase64("./chart/files/webserver_config.py"),
+            jsonencode(kubernetes_secret.env.data),
+            jsonencode(kubernetes_secret.db.data),
+            local.gitSync.enabled ? jsonencode(kubernetes_secret.gitSync[0].data) : "",
+          ]))
+        }
+        webserverConfig = {
+          existingSecret = "${local.name}-webserver-config"
+        }
+      } : {}
+      dags = {
+        persistence = {
+          enabled = !local.gitSync.enabled
+        }
+        gitSync = local.gitSync.enabled ? {
+          enabled     = true
+          repo        = local.gitSync.repo
+          repoSubPath = local.gitSync.path
+          branch      = local.gitSync.branch
+          httpSecret  = kubernetes_secret.gitSync[0].metadata[0].name
+          } : {
+          enabled     = false
+          repo        = ""
+          repoSubPath = ""
+          branch      = ""
+          httpSecret  = ""
+        }
+      }
+      postgresql = {
+        existingSecret = kubernetes_secret.db.metadata[0].name
+      }
+    }
+  })
 }
 
 resource "kubernetes_namespace" "this" {
@@ -55,70 +141,7 @@ resource "helm_release" "this" {
   dependency_update = true
 
   values = [
-    yamlencode({
-      configSecretName = "${local.name}-config"
-
-      ingress = {
-        host = local.domain
-      }
-      auth = {
-        enabled = local.auth_enabled
-      }
-      airflow = {
-        airflow = {
-          image = {
-            repository = "ghcr.io/metrostar/nebari-airflow/airflow"
-            tag        = "${yamldecode("./chart/Chart.yaml")["appVersion"]}-python${local.pythonVersion}"
-          }
-          extraEnv = concat([for k, _ in kubernetes_secret.env.data :
-            {
-              name = k
-              valueFrom = {
-                secretKeyRef = {
-                  name     = kubernetes_secret.env.metadata[0].name
-                  key      = k
-                  optional = false
-                }
-              }
-            }
-          ], local.extraEnv)
-          defaultAffinity = local.affinity.enabled ? {
-            nodeAffinity = {
-              requiredDuringSchedulingIgnoredDuringExecution = {
-                nodeSelectorTerms = [
-                  {
-                    matchExpressions = [
-                      {
-                        key      = "eks.amazonaws.com/nodegroup"
-                        operator = "In"
-                        values   = [local.affinity.selector.default]
-                      }
-                    ]
-                  }
-                ]
-              }
-            }
-          } : {}
-        }
-        web = local.auth.enabled ? {
-          webserverConfig = {
-            existingSecret = "${local.name}-config"
-          }
-        } : {}
-        dags = local.gitSync.enabled ? {
-          persistence = {
-            enabled = false
-          }
-          gitSync = {
-            enabled     = true
-            repo        = local.gitSync.repo
-            repoSubPath = local.gitSync.path
-            branch      = local.gitSync.branch
-            httpSecret  = kubernetes_secret.gitSync[0].metadata[0].name
-          }
-        } : {}
-      }
-    }),
+    local.default_values,
     yamlencode(local.overrides),
   ]
 }
@@ -179,12 +202,12 @@ resource "keycloak_generic_role_mapper" "this" {
 
   realm_id  = local.realm_id
   client_id = keycloak_openid_client.this[0].id
-  role_id   = keycloak_role.this[each.key]
+  role_id   = keycloak_role.this[each.key].id
 }
 
 resource "kubernetes_secret" "env" {
   metadata {
-    name      = "${local.name}-env"
+    name      = "${local.name}-plugin-envs"
     namespace = local.chart_namespace
   }
 
@@ -203,6 +226,17 @@ resource "kubernetes_secret" "env" {
   }
 }
 
+resource "kubernetes_secret" "db" {
+  metadata {
+    name      = "${local.name}-postgres"
+    namespace = local.chart_namespace
+  }
+
+  data = {
+    "postgresql-password" = random_password.db.result
+  }
+}
+
 resource "kubernetes_secret" "gitSync" {
   count = local.gitSync.enabled ? 1 : 0
 
@@ -216,4 +250,9 @@ resource "kubernetes_secret" "gitSync" {
 
 resource "random_id" "webserver_secret" {
   byte_length = 32
+}
+
+resource "random_password" "db" {
+  length  = 24
+  special = false
 }
