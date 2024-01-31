@@ -80,13 +80,16 @@ variable "auth_enabled" {
 
 variable "gitSync" {
   type = object({
-    enabled = optional(bool, true)
-    repo    = string
-    path    = string
+    enabled = optional(bool, false)
+    repo    = optional(string, "")
+    path    = optional(string, "")
     branch  = optional(string, "main")
-    credentials = object({
+    credentials = optional(object({
       username = string
       password = string
+    }), {
+      username = ""
+      password = ""
     })
   })
   default = {

@@ -102,7 +102,7 @@ locals {
       } : {}
       dags = {
         persistence = {
-          enabled = !local.gitSync.enabled
+          enabled    = !local.gitSync.enabled
         }
         gitSync = local.gitSync.enabled ? {
           enabled     = true
@@ -217,12 +217,6 @@ resource "kubernetes_secret" "env" {
     AIRFLOW_SSO_ISSUER_URL         = local.auth_enabled ? "${local.external_url}realms/${local.realm_id}" : "_"
     AIRFLOW_SSO_CLIENT_ID          = local.auth_enabled ? keycloak_openid_client.this[0].client_id : "_"
     AIRFLOW_SSO_CLIENT_SECRET      = local.auth_enabled ? keycloak_openid_client.this[0].client_secret : "_"
-  }
-
-  lifecycle {
-    ignore_changes = [
-      data.AIRFLOW__CORE__FERNET_KEY,
-    ]
   }
 }
 
